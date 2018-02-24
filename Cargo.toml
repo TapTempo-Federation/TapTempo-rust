@@ -1,0 +1,9 @@
+[package]
+name = "taptempo"
+version = "0.1.0"
+authors = ["Boiethios <fdaudre-@student.42.fr>"]
+description = "Display the tempo from user's input."
+
+[dependencies]
+structopt = { version = "0.2", default-features = false }
+
