@@ -1,8 +1,21 @@
 #[macro_use] extern crate structopt;
+extern crate circ_queue;
 
-use std::collections::VecDeque;
 use std::time::Instant;
-use std::io::{StdinLock, Lines, BufRead, Write};
+use std::io::{StdinLock, Lines, BufRead, Write, Error as IoError};
+use circ_queue::CircQueue;
+
+
+//
+// print_now!
+//
+
+macro_rules! print_now {
+    { $( $e:expr ),* } => {{
+        print!( $( $e ),* );
+        std::io::stdout().flush().expect("Error: cannot flush");
+    }}
+}
 
 
 //
@@ -12,19 +25,19 @@ use std::io::{StdinLock, Lines, BufRead, Write};
 #[derive(Debug)]
 struct App {
     params: Params,
-    hits: VecDeque<Instant>,
+    hits: CircQueue<Instant>,
+}
+
+impl Default for App {
+    fn default() -> Self {
+        let params = Params::default();
+        let hits = CircQueue::with_capacity(params.sample_size);
+        
+        App { params, hits }
+    }
 }
 
 impl App {
-    fn new() -> Self {
-        use structopt::StructOpt;
-        
-        App {
-            params: Params::from_args().validate(),
-            hits: VecDeque::new(),
-        }
-    }
-    
     fn display_bpm(&self, n: f64) {
         let (first, last) = (self.hits.front().unwrap(), self.hits.back().unwrap());
         let elapsed_time = last.duration_since(*first);
@@ -35,8 +48,7 @@ impl App {
         };
         let bpm = n * 60_000. / elapsed_millis;
         
-        print!("Tempo: {:.*} bpm ", self.params.precision, bpm);
-        std::io::stdout().flush().expect("Error: cannot flush");
+        print_now!("Tempo: {:.*} bpm ", self.params.precision, bpm);
     }
     
     fn reset_time_elapsed(&self, now: Instant) -> bool {        
@@ -46,19 +58,18 @@ impl App {
         }
     }
     
-    fn run(&mut self) -> Result<(), String> {
-        fn must_continue(reader: &mut Lines<StdinLock>) -> Result<bool, String> {
-            reader
-                .next()
-                .unwrap_or(Ok("q".into()))
-                .map_err(|e| format!("{}", e))
-                .map(|s| s != "q")
+    fn run(&mut self) -> Result<(), Box<std::error::Error>> {
+        fn must_continue(reader: &mut Lines<StdinLock>) -> Result<bool, IoError> {
+            match reader.next() {
+                None => Ok(false),
+                Some(r) => r.map(|s| s != "q")
+            }
         }
 
         let reader = std::io::stdin();
         let reader = &mut reader.lock().lines();
 
-        println!("Hit enter key for each beat (q to quit).");
+        print_now!("Hit enter key for each beat (q to quit).");
 
         while must_continue(reader)? {
             let now = Instant::now();
@@ -69,13 +80,8 @@ impl App {
             self.hits.push_back(now);
             
             match self.hits.len() {
-                0 | 1 => println!("[Hit enter key one more time to start bpm computation...]"),
-                n => {
-                    if self.hits.len() > self.params.sample_size {
-                        self.hits.pop_front();
-                    }
-                    self.display_bpm(n as f64)
-                },
+                0 | 1 => print_now!("[Hit enter key one more time to start bpm computation...]"),
+                n => self.display_bpm(n as f64),
             }
         }
         println!("Bye Bye!");
@@ -89,7 +95,7 @@ impl App {
 //
 
 fn main() {
-    if let Err(e) = App::new().run() {
+    if let Err(e) = App::default().run() {
         println!("Error: {}", e);
         std::process::exit(-1);
     }
@@ -113,12 +119,15 @@ struct Params {
     sample_size: usize,
 }
 
-impl Params {
-    fn validate(self) -> Self {
+impl Default for Params {
+    fn default() -> Self {
+        use structopt::StructOpt;
+        let params = Params::from_args();
+
         Params {
-            precision: self.precision.min(5),
-            reset_time: self.reset_time.max(1),
-            sample_size: self.sample_size.max(1),
+            precision: params.precision.min(5),
+            reset_time: params.reset_time.max(1),
+            sample_size: params.sample_size.max(1),
         }
     }
 }

@@ -6,4 +6,5 @@ description = "Display the tempo from user's input."
 
 [dependencies]
 structopt = { version = "0.2", default-features = false }
+circ-queue = { git = "https://gitlab.com/Boiethios/circ-queue.git", branch = "master" }
 
